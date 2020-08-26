@@ -1,4 +1,5 @@
 git checkout _grades -q
+git pull -q
 echo
 echo '-----------Contents of results.txt-----------------'
 echo
