@@ -14,9 +14,13 @@
 
 #include <arpa/inet.h>
 
-#define PORT "3490" // the port client will be connecting to 
+#define MAX_DATA_SIZE 1024 // max number of bytes we can get at once
 
-#define MAXDATASIZE 100 // max number of bytes we can get at once 
+#define MAX_DOMAIN_SIZE 100
+#define MAX_PATH_SIZE 100
+#define MAX_SENDLINE 256
+
+#define OUTPUT_FILE_NAME "output"
 
 // get sockaddr, IPv4 or IPv6:
 void *get_in_addr(struct sockaddr *sa)
@@ -30,22 +34,41 @@ void *get_in_addr(struct sockaddr *sa)
 
 int main(int argc, char *argv[])
 {
-	int sockfd, numbytes;  
-	char buf[MAXDATASIZE];
+	int sockfd, numbytes;
+	char buf[MAX_DATA_SIZE];
 	struct addrinfo hints, *servinfo, *p;
-	int rv;
+	int rv, match_cnt;
 	char s[INET6_ADDRSTRLEN];
+	char domain[MAX_DOMAIN_SIZE], path[MAX_PATH_SIZE], port[10];
+	char sendline[MAX_SENDLINE];
+	FILE *fp;
 
 	if (argc != 2) {
-	    fprintf(stderr,"usage: client hostname\n");
-	    exit(1);
+		fprintf(stderr, "Usage: client http://hostname[:port]/path/to/file\n");
+		fprintf(stderr, "Example:\n");
+		fprintf(stderr, "  ./client http://illinois.edu/index.html\n");
+		fprintf(stderr, "  ./client http://12.34.56.78:8888/somefile.txt\n");
+		exit(1);
+	}
+
+	// try to match domain, port, and path
+	match_cnt = sscanf(argv[1], "%*[^:]%*[:/]%[^:]:%[0-9]%s", domain, port, path);
+
+	if (match_cnt != 3) {
+		// try to match domain and path. Assume the port is 80
+		match_cnt = sscanf(argv[1], "%*[^:]%*[:/]%[^/]%s", domain, path);
+		if (match_cnt != 2) {
+			fprintf(stderr, "invalid URL, please check. URL: %s\n", argv[1]);
+			exit(1);
+		}
+		strcpy(port, "80"); // use default port 80
 	}
 
 	memset(&hints, 0, sizeof hints);
 	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM;
 
-	if ((rv = getaddrinfo(argv[1], PORT, &hints, &servinfo)) != 0) {
+	if ((rv = getaddrinfo(domain, port, &hints, &servinfo)) != 0) {
 		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
 		return 1;
 	}
@@ -78,15 +101,18 @@ int main(int argc, char *argv[])
 
 	freeaddrinfo(servinfo); // all done with this structure
 
-	if ((numbytes = recv(sockfd, buf, MAXDATASIZE-1, 0)) == -1) {
-	    perror("recv");
-	    exit(1);
+	sprintf(sendline, "GET %s HTTP/1.0\r\n\r\n", path);
+
+	if (write(sockfd, sendline, strlen(sendline)) >= 0) {
+		fp = fopen(OUTPUT_FILE_NAME, "w");
+		while ((numbytes = recv(sockfd, buf, MAX_DATA_SIZE, 0)) > 0) {
+			fprintf(fp, buf, numbytes);
+		}
+		fclose(fp);
+		printf("wrote content to file: %s\n", OUTPUT_FILE_NAME);
+	} else {
+		printf("failed to send request\n");
 	}
-
-	buf[numbytes] = '\0';
-
-	printf("client: received '%s'\n",buf);
-
 	close(sockfd);
 
 	return 0;
