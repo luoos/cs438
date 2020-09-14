@@ -22,26 +22,26 @@ LISTENEROBJECTS = obj/listener.o
 #The first rule in the Makefile is the default (the one chosen by plain `make`).
 #Since 'all' is first in this file, both `make all` and `make` do the same thing.
 #(`make obj server client talker listener` would also have the same effect).
-all : obj server client talker listener
+all : obj http_server http_client talker listener
 
 #$@: name of rule's target: server, client, talker, or listener, for the respective rules.
 #$^: the entire dependency string (after expansions); here, $(SERVEROBJECTS)
 #CC is a built in variable for the default C compiler; it usually defaults to "gcc". (CXX is g++).
-server: $(SERVEROBJECTS)
+http_server: $(SERVEROBJECTS)
 	$(CC) $(COMPILERFLAGS) $^ -o $@ $(LINKLIBS)
 
 
 
-#So, how does all of this work? This rule is saying 
+#So, how does all of this work? This rule is saying
 #
-#"I am how you make the thing called client. If the thing called client is required, but doesn't 
-#exist / is out of date, then the way to make it is to run 
-#`$(CC) $(COMPILERFLAGS) $^ -o $@ $(LINKLIBS)`. 
+#"I am how you make the thing called client. If the thing called client is required, but doesn't
+#exist / is out of date, then the way to make it is to run
+#`$(CC) $(COMPILERFLAGS) $^ -o $@ $(LINKLIBS)`.
 #But, you can't start doing that until you are sure all of my dependencies ($(CLIENTOBJECTS)) are up to date."
 #
-#In this case, CLIENTOBJECTS is just obj/client.o. So, if obj/client.o doesn't exist or is out of date, 
+#In this case, CLIENTOBJECTS is just obj/client.o. So, if obj/client.o doesn't exist or is out of date,
 #make will first look for a rule to build it. That rule is the 'obj/%.o' one, below; the % is a wildcard.
-client: $(CLIENTOBJECTS)
+http_client: $(CLIENTOBJECTS)
 	$(CC) $(COMPILERFLAGS) $^ -o $@ $(LINKLIBS)
 
 
@@ -60,10 +60,9 @@ clean :
 
 #$<: the first dependency in the list; here, src/%.c. (Of course, we could also have used $^).
 #The % sign means "match one or more characters". You specify it in the target, and when a file
-#dependency is checked, if its name matches this pattern, this rule is used. You can also use the % 
+#dependency is checked, if its name matches this pattern, this rule is used. You can also use the %
 #in your list of dependencies, and it will insert whatever characters were matched for the target name.
 obj/%.o: src/%.c
 	$(CC) $(COMPILERFLAGS) -c -o $@ $<
 obj:
 	mkdir -p obj
-
