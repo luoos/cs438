@@ -1,9 +1,12 @@
 obj/
 
 # binary
+http_client
 client
+http_server
 server
 listener
 talker
 
 output
+.DS_Store
