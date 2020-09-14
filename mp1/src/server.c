@@ -15,8 +15,6 @@
 #include <sys/wait.h>
 #include <signal.h>
 
-#define PORT "3490"  // the port users will be connecting to
-
 #define BACKLOG 10	 // how many pending connections queue will hold
 
 void sigchld_handler(int s)
@@ -34,7 +32,7 @@ void *get_in_addr(struct sockaddr *sa)
 	return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
-int main(void)
+int main(int argc, char* argv[])
 {
 	int sockfd, new_fd;  // listen on sock_fd, new connection on new_fd
 	struct addrinfo hints, *servinfo, *p;
@@ -45,12 +43,18 @@ int main(void)
 	char s[INET6_ADDRSTRLEN];
 	int rv;
 
+	if (argc != 2) {
+		fprintf(stderr, "usage: server port\n");
+		fprintf(stderr, "Example:\n");
+		fprintf(stderr, "./server 8000");
+	}	
+
 	memset(&hints, 0, sizeof hints);
 	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_flags = AI_PASSIVE; // use my IP
 
-	if ((rv = getaddrinfo(NULL, PORT, &hints, &servinfo)) != 0) {
+	if ((rv = getaddrinfo(NULL, argv[1], &hints, &servinfo)) != 0) {
 		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
 		return 1;
 	}
@@ -114,12 +118,45 @@ int main(void)
 		printf("server: got connection from %s\n", s);
 
 		if (!fork()) { // this is the child process
+			char request[4096];
+			char filepath[1000];
 			close(sockfd); // child doesn't need the listener
-			if (send(new_fd, "Hello, world!", 13, 0) == -1)
-				perror("send");
-			close(new_fd);
-			exit(0);
-		}
+			if (read(new_fd, request, sizeof(request)) >= 0) {
+				sscanf(request, "%*s /%s %*s\r\n\r\n", filepath);
+				// try to find file
+				char header[2048];
+				FILE* fptr = fopen(filepath, "r");
+				
+				if (!fptr) {
+					fprintf(stderr, "file not found\n");
+					fprintf(stderr, "%s\n", strerror(errno));
+					strcpy(header, "HTTP/1.0 404 Not Found\r\n\r\n");
+					// pad by four to account for "\r" chars
+					if (send(new_fd, header, strlen(header), 0) == -1) {
+						perror("send");
+					}
+				} else {
+					strcpy(header, "HTTP/1.0 200 OK\r\n\r\n");	
+					// pad by four to account for "\r" chars
+					if (send(new_fd, header, strlen(header), 0) == -1) {
+						perror("send");
+					} else {
+						char response[4096];
+						int bytes_read = 0;
+						while ((bytes_read = fread(response, 1, sizeof(response), fptr)) > 0) {
+							if (send(new_fd, response, bytes_read, 0) == -1) {
+								perror("send");
+								break;
+							}
+   						}
+					}
+				}
+				
+				close(new_fd);
+				exit(0);
+			}
+		} 
+
 		close(new_fd);  // parent doesn't need this
 	}
 

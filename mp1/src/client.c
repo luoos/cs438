@@ -37,28 +37,29 @@ int main(int argc, char *argv[])
 	int sockfd, numbytes;
 	char buf[MAX_DATA_SIZE];
 	struct addrinfo hints, *servinfo, *p;
-	int rv, match_cnt;
+	int rv;
 	char s[INET6_ADDRSTRLEN];
+
+	int match_cnt;
 	char domain[MAX_DOMAIN_SIZE], path[MAX_PATH_SIZE], port[10];
 	char sendline[MAX_SENDLINE];
-	FILE *fp;
+	FILE* fp;
 
 	if (argc != 2) {
-		fprintf(stderr, "Usage: client http://hostname[:port]/path/to/file\n");
+		fprintf(stderr,"usage: client http://hostname[:port]/path/to/file\n");
 		fprintf(stderr, "Example:\n");
-		fprintf(stderr, "  ./client http://illinois.edu/index.html\n");
-		fprintf(stderr, "  ./client http://12.34.56.78:8888/somefile.txt\n");
+		fprintf(stderr, "./client http://illinois.edu/index.html\n");
+		fprintf(stderr, "./client http://12.34.56.78:8888/somefile.txt\n");
 		exit(1);
 	}
 
 	// try to match domain, port, and path
 	match_cnt = sscanf(argv[1], "%*[^:]%*[:/]%[^:]:%[0-9]%s", domain, port, path);
-
 	if (match_cnt != 3) {
 		// try to match domain and path. Assume the port is 80
 		match_cnt = sscanf(argv[1], "%*[^:]%*[:/]%[^/]%s", domain, path);
 		if (match_cnt != 2) {
-			fprintf(stderr, "invalid URL, please check. URL: %s\n", argv[1]);
+			fprintf(stderr, "invalid URL, please check URL: %s\n", argv[1]);
 			exit(1);
 		}
 		strcpy(port, "80"); // use default port 80
@@ -103,16 +104,23 @@ int main(int argc, char *argv[])
 
 	sprintf(sendline, "GET %s HTTP/1.0\r\n\r\n", path);
 
-	if (write(sockfd, sendline, strlen(sendline)) >= 0) {
+	if (write(sockfd, sendline, strlen(sendline)) == strlen(sendline)) {
 		fp = fopen(OUTPUT_FILE_NAME, "w");
-		while ((numbytes = recv(sockfd, buf, MAX_DATA_SIZE, 0)) > 0) {
-			fprintf(fp, buf, numbytes);
+		if (!fp) {
+			fprintf(stderr, "file unable to be open");
+			close(sockfd);
+			exit(1);
+		}
+
+		while ((numbytes = recv(sockfd, buf, MAX_DATA_SIZE-1, 0)) > 0) {
+			fwrite(buf, 1, numbytes, fp);
 		}
 		fclose(fp);
 		printf("wrote content to file: %s\n", OUTPUT_FILE_NAME);
 	} else {
 		printf("failed to send request\n");
 	}
+
 	close(sockfd);
 
 	return 0;
