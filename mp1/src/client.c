@@ -14,13 +14,15 @@
 
 #include <arpa/inet.h>
 
-#define MAX_DATA_SIZE 1024 // max number of bytes we can get at once
+#define MAX_DATA_SIZE 4096 // max number of bytes we can get at once
 
 #define MAX_DOMAIN_SIZE 100
 #define MAX_PATH_SIZE 100
 #define MAX_SENDLINE 256
 
 #define OUTPUT_FILE_NAME "output"
+
+#define DELIMITER "\r\n\r\n"
 
 // get sockaddr, IPv4 or IPv6:
 void *get_in_addr(struct sockaddr *sa)
@@ -112,8 +114,19 @@ int main(int argc, char *argv[])
 			exit(1);
 		}
 
-		while ((numbytes = recv(sockfd, buf, MAX_DATA_SIZE-1, 0)) > 0) {
-			fwrite(buf, 1, numbytes, fp);
+		if ((numbytes = recv(sockfd, buf, sizeof buf, 0)) > 0) {
+			// this points to the "\r\n\r\n..."
+			char* header_tail = strstr(buf, DELIMITER);
+			if (header_tail) {  // found the DELIMITER
+				// skip the "\r\n\r\n"
+				char* content_start = header_tail + strlen(DELIMITER);
+				int header_len = content_start - buf;  // including the delimiter
+				fwrite(content_start, 1, numbytes - header_len, fp);
+
+				while ((numbytes = recv(sockfd, buf, sizeof buf, 0)) > 0) {
+					fwrite(buf, 1, numbytes, fp);
+				}
+			}
 		}
 		fclose(fp);
 		printf("wrote content to file: %s\n", OUTPUT_FILE_NAME);
