@@ -47,7 +47,7 @@ int main(int argc, char* argv[])
 		fprintf(stderr, "usage: server port\n");
 		fprintf(stderr, "Example:\n");
 		fprintf(stderr, "./server 8000");
-	}	
+	}
 
 	memset(&hints, 0, sizeof hints);
 	hints.ai_family = AF_UNSPEC;
@@ -126,7 +126,7 @@ int main(int argc, char* argv[])
 				// try to find file
 				char header[2048];
 				FILE* fptr = fopen(filepath, "r");
-				
+
 				if (!fptr) {
 					fprintf(stderr, "file not found\n");
 					fprintf(stderr, "%s\n", strerror(errno));
@@ -136,7 +136,7 @@ int main(int argc, char* argv[])
 						perror("send");
 					}
 				} else {
-					strcpy(header, "HTTP/1.0 200 OK\r\n\r\n");	
+					strcpy(header, "HTTP/1.0 200 OK\r\n\r\n");
 					// pad by four to account for "\r" chars
 					if (send(new_fd, header, strlen(header), 0) == -1) {
 						perror("send");
@@ -151,11 +151,11 @@ int main(int argc, char* argv[])
    						}
 					}
 				}
-				
+
 				close(new_fd);
 				exit(0);
 			}
-		} 
+		}
 
 		close(new_fd);  // parent doesn't need this
 	}
