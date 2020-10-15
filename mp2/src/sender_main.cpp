@@ -21,6 +21,8 @@
 #include <sys/time.h>
 #include <netdb.h>
 
+#include <iostream>
+
 #define SENDER_BUF_SIZE 4096
 #define RECV_BUF_SIZE 4096
 
@@ -118,6 +120,8 @@ int main(int argc, char** argv) {
 
     unsigned short int udpPort;
     unsigned long long int numBytes;
+
+    std::cout << "output test" << std::endl;
 
     if (argc != 5) {
         fprintf(stderr, "usage: %s receiver_hostname receiver_port filename_to_xfer bytes_to_xfer\n\n", argv[0]);
