@@ -35,6 +35,24 @@ void diep(const char *s) {
     exit(1);
 }
 
+/**
+ * Writes all consecutive packets beginning from LCP_ind in the ring buffer
+ * into the dest_file location and erases ring buffer location after each write.
+ * Returns ACK sequence number to send back
+ */
+unsigned int consecutiveWriteToFile(TCP_packet ring_buf[], int LCP_ind, FILE* dest_file) {
+    size_t bytes_written = 0;
+    unsigned int send_back_ack_seq_no;
+    while (&ring_buf[LCP_ind] != NULL) {
+        TCP_packet packet = ring_buf[LCP_ind];
+        send_back_ack_seq_no = packet.seq_no;
+        bytes_written = fwrite(packet.data, 1, packet.data_size, dest_file);
+        memcpy(&ring_buf[LCP_ind], 0, TCP_PACKET_SIZE);
+        printf("%ld bytes written\n", bytes_written);
+    }
+    return send_back_ack_seq_no;
+}
+
 void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
     int recv_bytes; 
     char buf[RECV_BUF_SIZE];
@@ -90,28 +108,16 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
 
         // write data to file
         unsigned int send_back_ack_seq_no;
-        size_t bytes_written;
         if (incoming_packet.seq_no == BEGIN_SEQ_NUM) { // write beginning packet, do not update LCP
             // write all consecutive in ring buffer to file and update sendBackAck
-            while (&ring_buf[LCP_ind] != NULL) {
-                TCP_packet packet = ring_buf[LCP_ind];
-                send_back_ack_seq_no = packet.seq_no;
-                bytes_written = fwrite(packet.data, 1, packet.data_size, dest_file);
-                memcpy(&ring_buf[LCP_ind], 0, TCP_PACKET_SIZE);
-                printf("%d bytes written\n", bytes_written);
-            }
+            send_back_ack_seq_no = consecutiveWriteToFile(ring_buf, LCP_ind, dest_file);
             // update LCP index
             LCP_ind = send_back_ack_seq_no % RING_BUF_SIZE;
-        } else if (incoming_packet.seq_no == LCP_ind + 1 && incoming_packet.seq_no != BEGIN_SEQ_NUM) { // write incoming packet if it is consecutive
+        } else if (incoming_packet.seq_no != BEGIN_SEQ_NUM && 
+                    incoming_packet.seq_no == LCP_ind + 1) { // write incoming packet if it is consecutive
             LCP_ind++;
             // write all consecutive in ring buffer to file and update sendBackAck
-            while (&ring_buf[LCP_ind] != NULL) {
-                TCP_packet packet = ring_buf[LCP_ind];
-                send_back_ack_seq_no = packet.seq_no;
-                bytes_written = fwrite(packet.data, 1, packet.data_size, dest_file);
-                memcpy(&ring_buf[LCP_ind], 0, TCP_PACKET_SIZE);
-                printf("%d bytes written\n", bytes_written);
-            }
+            send_back_ack_seq_no = consecutiveWriteToFile(ring_buf, LCP_ind, dest_file);
             // update LCP index
             LCP_ind = send_back_ack_seq_no % RING_BUF_SIZE;
         }
