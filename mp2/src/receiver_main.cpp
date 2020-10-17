@@ -40,14 +40,16 @@ void diep(const char *s) {
  * into the dest_file location and erases ring buffer location after each write.
  * Returns ACK sequence number to send back
  */
-unsigned int consecutiveWriteToFile(TCP_packet ring_buf[], int LCP_ind, FILE* dest_file) {
+unsigned int consecutiveWriteToFile(TCP_packet* ring_buf[], int LCP_ind, FILE* dest_file) {
     size_t bytes_written = 0;
     unsigned int send_back_ack_seq_no;
-    while (&ring_buf[LCP_ind] != NULL) {
-        TCP_packet packet = ring_buf[LCP_ind];
-        send_back_ack_seq_no = packet.seq_no;
-        bytes_written = fwrite(packet.data, 1, packet.data_size, dest_file);
-        memcpy(&ring_buf[LCP_ind], 0, TCP_PACKET_SIZE);
+    while (ring_buf[LCP_ind] != NULL) {
+        TCP_packet* packet = ring_buf[LCP_ind];
+        send_back_ack_seq_no = packet->seq_no;
+        bytes_written = fwrite(packet->data, 1, packet->data_size, dest_file);
+        // memcpy(&ring_buf[LCP_ind], 0, TCP_PACKET_SIZE);
+        ring_buf[LCP_ind] = NULL;
+        LCP_ind++;
         printf("%ld bytes written\n", bytes_written);
     }
     return send_back_ack_seq_no;
@@ -56,8 +58,8 @@ unsigned int consecutiveWriteToFile(TCP_packet ring_buf[], int LCP_ind, FILE* de
 void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
     int recv_bytes; 
     char buf[RECV_BUF_SIZE];
-    char ack_buf[100] = "hey there";  // TODO: use a real send buf
-    TCP_packet ring_buf[RING_BUF_SIZE];
+    char ack_buf[100];  
+    TCP_packet* ring_buf[RING_BUF_SIZE];
 
     struct sockaddr_storage other_addr;
     socklen_t other_addr_len;
@@ -98,7 +100,7 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
         }
         // decode and store data
         memcpy(&incoming_packet, buf, TCP_PACKET_SIZE);
-        ring_buf[incoming_packet.seq_no % RING_BUF_SIZE] = incoming_packet;
+        ring_buf[incoming_packet.seq_no % RING_BUF_SIZE] = &incoming_packet;
 
         // check for last packet
         if (incoming_packet.data_size == 0) {
@@ -139,7 +141,7 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
 
     fclose(dest_file);
     close(s);
-    printf("%s received.", destinationFile);
+    printf("%s received\n", destinationFile);
     return;
 }
 
