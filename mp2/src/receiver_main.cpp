@@ -21,6 +21,8 @@
 #define RING_BUF_SIZE 20
 #define BEGIN_SEQ_NUM 0
 
+#define DEBUG 0
+
 struct sockaddr_in si_me, si_other;
 int s, slen;
 
@@ -56,14 +58,15 @@ unsigned int consecutiveWriteToFile(TCP_packet* ring_buf[], int LCP_ind, FILE* d
 }
 
 void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
-    int recv_bytes; 
+    int recv_bytes;
     char buf[RECV_BUF_SIZE];
-    char ack_buf[100];  
+    char ack_buf[100];
     TCP_packet* ring_buf[RING_BUF_SIZE];
 
     struct sockaddr_storage other_addr;
     socklen_t other_addr_len;
-    
+    memset(ring_buf, 0, RING_BUF_SIZE);
+
     slen = sizeof (si_other);
     if ((s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1) {
         diep("socket");
@@ -90,16 +93,20 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
     bool last_packet_found = false;
     unsigned int last_packet_seq_no;
     // index of last consecutive packet in ring buffer
-    int LCP_ind;
+    int LCP_ind = 0;
     while (true) {
         // receive data
-        if ((recv_bytes = recvfrom(s, buf, RECV_BUF_SIZE, 0, 
+        if ((recv_bytes = recvfrom(s, buf, RECV_BUF_SIZE, 0,
                 (struct sockaddr*) &other_addr, &other_addr_len)) == -1) {
             perror("recv error");
             exit(1);
         }
         // decode and store data
         memcpy(&incoming_packet, buf, TCP_PACKET_SIZE);
+        #ifdef DEBUG
+        printf("receive packet %d, content_size: %d\n",
+                incoming_packet.seq_no, incoming_packet.data_size);
+        #endif
         ring_buf[incoming_packet.seq_no % RING_BUF_SIZE] = &incoming_packet;
 
         // check for last packet
@@ -107,7 +114,6 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
             last_packet_found = true;
             last_packet_seq_no = incoming_packet.seq_no;
         }
-
         // write data to file
         unsigned int send_back_ack_seq_no;
         if (incoming_packet.seq_no == BEGIN_SEQ_NUM) { // write beginning packet, do not update LCP
@@ -115,7 +121,7 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
             send_back_ack_seq_no = consecutiveWriteToFile(ring_buf, LCP_ind, dest_file);
             // update LCP index
             LCP_ind = send_back_ack_seq_no % RING_BUF_SIZE;
-        } else if (incoming_packet.seq_no != BEGIN_SEQ_NUM && 
+        } else if (incoming_packet.seq_no != BEGIN_SEQ_NUM &&
                     incoming_packet.seq_no == LCP_ind + 1) { // write incoming packet if it is consecutive
             LCP_ind++;
             // write all consecutive in ring buffer to file and update sendBackAck
@@ -124,9 +130,9 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
             LCP_ind = send_back_ack_seq_no % RING_BUF_SIZE;
         }
 
-        // send ack 
+        // send ack
         memcpy(ack_buf, &send_back_ack_seq_no, sizeof send_back_ack_seq_no);
-        if (sendto(s, ack_buf, sizeof send_back_ack_seq_no, 0, 
+        if (sendto(s, ack_buf, sizeof send_back_ack_seq_no, 0,
                 (struct sockaddr *)&other_addr, other_addr_len) == -1) {
             perror("fail to send");
             exit(1);

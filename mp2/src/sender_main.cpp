@@ -34,7 +34,7 @@
 #define SOCKET_TIMEOUT_MILLISEC 25
 #define SOCKET_TIMEOUT_MICROSEC SOCKET_TIMEOUT_MILLISEC * 1000
 
-#define DEBUG 1
+#define DEBUG 0
 
 using namespace std;
 
@@ -130,7 +130,7 @@ class ReliableSender {
                 leftPacketId_ : sentWithoutAckPackets.back().id() + 1;
         int bytesRead;
         int contentSize;
-        int newPacketCnt = round(windowSize_) - sentWithoutAckPackets.size();
+        int newPacketCnt = ((int)ceil(windowSize_)) - sentWithoutAckPackets.size();
         while (newPacketCnt-- > 0) {
             bytesRead = fread(fileReadBuf_, 1, CONTENT_SIZE, fp_);
             contentSize = remainingBytesToRead_ >= bytesRead ?
@@ -299,7 +299,7 @@ class CongAvoid: public State {  // Congestion avoidance state
                     context_->windowSize_ + MSS * (MSS / context_->windowSize_);
         }
         context_->nextAction_ = sendNew;
-        context_->leftPacketId_ = ackId;
+        context_->leftPacketId_ = ackId + 1;
     }
 };
 
@@ -314,7 +314,7 @@ void FastRecovery::newACK(int ackId) {
     context_->nextAction_ = sendNew;
     CongAvoid *congAvoidState = new CongAvoid(context_);
     context_->changeState((State *) congAvoidState);
-    context_->leftPacketId_ = ackId;
+    context_->leftPacketId_ = ackId + 1;
 }
 
 class SlowStart: public State {  // Slow start state
@@ -332,7 +332,7 @@ class SlowStart: public State {  // Slow start state
         int step = ackId - context_->leftPacketId_ + 1;
         context_->windowSize_ += MSS * step;
         context_->nextAction_ = sendNew;
-        context_->leftPacketId_ = ackId;
+        context_->leftPacketId_ = ackId + 1;
         if (context_->windowSize_ >= context_->ssthresh_) {
             CongAvoid *congAvoidState = new CongAvoid(context_);
             context_->changeState((State *) congAvoidState);
