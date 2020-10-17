@@ -34,7 +34,9 @@
 #define SOCKET_TIMEOUT_MILLISEC 25
 #define SOCKET_TIMEOUT_MICROSEC SOCKET_TIMEOUT_MILLISEC * 1000
 
-#define DEBUG 0
+#define DEBUG_LOG 0
+#define DEBUG_LOAD_PACKET 0 && DEBUG_LOG
+#define DEBUG_PACKET_TRAFFIC 1 && DEBUG_LOG
 
 using namespace std;
 
@@ -131,14 +133,35 @@ class ReliableSender {
         int bytesRead;
         int contentSize;
         int newPacketCnt = ((int)ceil(windowSize_)) - sentWithoutAckPackets.size();
+        if (DEBUG_LOAD_PACKET) {
+            printf("newPacketCnt: %d, windowSize: %d, deq size: %lu\n",
+                    newPacketCnt, ((int)ceil(windowSize_)), sentWithoutAckPackets.size());
+        }
         while (newPacketCnt-- > 0) {
+            if (remainingBytesToRead_ == 0) {
+                // creat FIN packet
+                Packet packet(packetIdToAdd++, 0, fileReadBuf_);
+                new_deq.push_back(move(packet));
+                if (DEBUG_LOAD_PACKET) {
+                    printf("create FIN packet: %d, size: %d\n",
+                            packet.id(), 0);
+                }
+                isFileExhausted_ = true;
+                break;
+            }
             bytesRead = fread(fileReadBuf_, 1, CONTENT_SIZE, fp_);
             contentSize = remainingBytesToRead_ >= bytesRead ?
                     bytesRead : remainingBytesToRead_;
             Packet packet(packetIdToAdd++, contentSize, fileReadBuf_);
-            remainingBytesToRead_ -= bytesRead;
+            if (DEBUG_LOAD_PACKET) {
+                printf("create packet: %d, size: %d, bytes read: %d\n",
+                        packet.id(), contentSize, bytesRead);
+            }
+            remainingBytesToRead_ = remainingBytesToRead_ <= bytesRead ?
+                    0 : remainingBytesToRead_ - bytesRead;
             new_deq.push_back(move(packet));
-            if (bytesRead == 0 || remainingBytesToRead_ <= 0) {
+
+            if (bytesRead == 0) {
                 isFileExhausted_ = true;
                 break;
             }
@@ -193,9 +216,9 @@ class ReliableSender {
 
     int sendSinglePacket(Packet *packet) {
         int sentBytes;
-        #ifdef DEBUG
-        printf("sending packet %d\n", packet->id());
-        #endif
+        if (DEBUG_PACKET_TRAFFIC) {
+            printf("sending packet %d\n", packet->id());
+        }
         packet->fillData(sendBuf_);
         sentBytes = sendto(socket_, sendBuf_, SENDER_BUF_SIZE, 0,
                 receiverinfo_->ai_addr, receiverinfo_->ai_addrlen);
@@ -259,9 +282,9 @@ class ReliableSender {
                 case waitACK: break;
             }
             int ackId = getACKIdOrTimeout();
-            #ifdef DEBUG
-            printf("receive ACK %d\n", ackId);
-            #endif
+            if (DEBUG_LOG) {
+                printf("receive ACK %d\n", ackId);
+            }
             if (ackId == -1) { // timeout
                 state_->timeout();
             } else if (ackId == lastReceivedACKId_) {
