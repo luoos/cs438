@@ -34,6 +34,8 @@
 #define SOCKET_TIMEOUT_MILLISEC 25
 #define SOCKET_TIMEOUT_MICROSEC SOCKET_TIMEOUT_MILLISEC * 1000
 
+#define DEBUG 1
+
 using namespace std;
 
 class State;
@@ -88,8 +90,8 @@ class Packet {
     }
 
     void fillData(char *buf) {
-        memcpy(buf, &id_, 4);  // int, 4 bytes
-        memcpy(buf+4, &content_len_, 4);  // int, 4 bytes
+        memcpy(buf, &id_, 4);                   // int, 4 bytes
+        memcpy(buf+4, &content_len_, 4);        // int, 4 bytes
         memcpy(buf+8, content_, CONTENT_SIZE);  // 4088 bytes
     }
 };
@@ -178,18 +180,22 @@ class ReliableSender {
         receiverinfo_ = receiverinfo;
         timeoutVal_.tv_sec = 0;
         timeoutVal_.tv_usec = SOCKET_TIMEOUT_MICROSEC;
+        state_ = nullptr;
         memset(recvBuf_, 0, RECV_BUF_SIZE);
     }
 
     void changeState(State *state) {
         if (state_ != nullptr) {
-            delete state_;
+            delete state_;  // delete the old state
         }
         state_ = state;
     }
 
     int sendSinglePacket(Packet *packet) {
         int sentBytes;
+        #ifdef DEBUG
+        printf("sending packet %d\n", packet->id());
+        #endif
         packet->fillData(sendBuf_);
         sentBytes = sendto(socket_, sendBuf_, SENDER_BUF_SIZE, 0,
                 receiverinfo_->ai_addr, receiverinfo_->ai_addrlen);
@@ -253,6 +259,9 @@ class ReliableSender {
                 case waitACK: break;
             }
             int ackId = getACKIdOrTimeout();
+            #ifdef DEBUG
+            printf("receive ACK %d\n", ackId);
+            #endif
             if (ackId == -1) { // timeout
                 state_->timeout();
             } else if (ackId == lastReceivedACKId_) {
@@ -369,7 +378,6 @@ void reliablyTransfer(char* hostname,
 
     if ((s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1)
         diep(string("socket").c_str());
-
     ReliableSender sender(fp, bytesToTransfer, s, servinfo);
     SlowStart *initialState = new SlowStart(&sender);
     sender.changeState((State *) initialState);
@@ -393,7 +401,6 @@ int main(int argc, char** argv) {
         exit(1);
     }
     numBytes = atoll(argv[4]);
-
     reliablyTransfer(argv[1], argv[2], argv[3], numBytes);
 
     return (EXIT_SUCCESS);
