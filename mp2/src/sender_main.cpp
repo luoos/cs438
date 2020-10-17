@@ -30,7 +30,7 @@
 #define SENDER_BUF_SIZE 4096
 #define RECV_BUF_SIZE 4096
 #define CONTENT_SIZE 4088
-#define MSS 2
+#define MSS 1
 #define SOCKET_TIMEOUT_MILLISEC 25
 #define SOCKET_TIMEOUT_MICROSEC SOCKET_TIMEOUT_MILLISEC * 1000
 
@@ -320,7 +320,7 @@ class CongAvoid: public State {  // Congestion avoidance state
         int step = ackId - context_->leftPacketId_ + 1;
         while (step-- > 0) {
             context_->windowSize_ =
-                    context_->windowSize_ + MSS * (MSS / context_->windowSize_);
+                    context_->windowSize_ + MSS * 2 * (MSS / floor(context_->windowSize_));
         }
         context_->nextAction_ = sendNew;
         context_->leftPacketId_ = ackId + 1;
