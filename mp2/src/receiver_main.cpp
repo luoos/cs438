@@ -1,6 +1,6 @@
 /*
  * File:   receiver_main.c
- * Author:
+ * Author: Carl Guo
  *
  * Created on
  */
@@ -22,8 +22,6 @@
 #define TCP_PACKET_SIZE 4096
 #define BEGIN_SEQ_NUM 0
 
-#define DEBUG 0
-
 struct sockaddr_in si_me, si_other;
 int s, slen;
 
@@ -38,11 +36,6 @@ void diep(const char *s) {
     exit(1);
 }
 
-/**
- * Writes all consecutive packets beginning from LCP_ind in the ring buffer
- * into the dest_file location and erases ring buffer location after each write.
- * Returns ACK sequence number to send back
- */
 unsigned int writeToFile(unsigned data_size, char data[], FILE* dest_file) {
     size_t bytes_written = 0;
     bytes_written = fwrite(data, 1, data_size, dest_file);
@@ -93,8 +86,8 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
             exit(1);
         }
         // decode and store data
-		incoming_packet = (TCP_packet*) malloc(TCP_PACKET_SIZE);
-		memcpy(incoming_packet, buf, TCP_PACKET_SIZE);
+        incoming_packet = (TCP_packet*) malloc(TCP_PACKET_SIZE);
+        memcpy(incoming_packet, buf, TCP_PACKET_SIZE);
 
         if (incoming_packet->data_size == 0) {
             last_packet_found = true;
@@ -104,12 +97,13 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
         // write data to file
         if (incoming_packet->seq_no == nextPacketId) {
             // write to file
-            int bytes_written = writeToFile(incoming_packet->data_size, incoming_packet->data, dest_file);
+            int bytes_written = writeToFile(incoming_packet->data_size,
+                                            incoming_packet->data, dest_file);
             // printf("%d bytes written to file\n", bytes_written);
             free(incoming_packet);
             incoming_packet = NULL;
             nextPacketId++;
-            // use a while loop to check cached packet in map and write them to file
+            // check cached packet in map and write them to file
             while (buffer.find(nextPacketId) != buffer.end()) {
                 TCP_packet* packet = buffer.at(nextPacketId);
                 bytes_written = writeToFile(packet->data_size, packet->data, dest_file);
@@ -121,7 +115,7 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
             send_back_ack_seq_no = nextPacketId - 1;
         } else if (buffer.find(incoming_packet->seq_no) == buffer.end() &&
                     incoming_packet->seq_no > nextPacketId) {
-            // save this packet into the map
+            // cache this packet
             buffer.insert({incoming_packet->seq_no, incoming_packet});
         } else {
             free(incoming_packet);
