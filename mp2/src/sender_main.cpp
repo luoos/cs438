@@ -25,6 +25,8 @@
 #include <iostream>
 #include <deque>
 
+#include "sender.h"
+
 #define SENDER_BUF_SIZE 4096
 #define RECV_BUF_SIZE 4096
 #define CONTENT_SIZE 4088
@@ -92,21 +94,14 @@ class Packet {
     }
 };
 
-class State {
-    protected:
-    ReliableSender *context_;
-
-    public:
-    State() {}
-    State(ReliableSender *sender) {
-        context_ = sender;
-    }
-    virtual void dupACK() {}
-    virtual void newACK(int ackId) {}
-    void timeout() {
-        timeoutBase(context_);
-    }
-};
+State::State() {}
+State::State(ReliableSender *sender) {
+    context_ = sender;
+}
+void State::timeout() {
+    timeoutBase(context_);
+}
+State::~State() {};
 
 class ReliableSender {
     private:
@@ -116,7 +111,7 @@ class ReliableSender {
     unsigned long long remainingBytesToRead_;  // may not equal to file size
     bool isFileExhausted_;  // true if either the file is exhausted or
                             // remainingBytesToRead_ turns to 0 or negative
-    State state_;
+    State *state_;
     deque<Packet> sentWithoutAckPackets;
     char fileReadBuf_[CONTENT_SIZE];
     char sendBuf_[SENDER_BUF_SIZE];
@@ -186,7 +181,10 @@ class ReliableSender {
         memset(recvBuf_, 0, RECV_BUF_SIZE);
     }
 
-    void setState(State state) {
+    void changeState(State *state) {
+        if (state_ != nullptr) {
+            delete state_;
+        }
         state_ = state;
     }
 
@@ -256,13 +254,13 @@ class ReliableSender {
             }
             int ackId = getACKIdOrTimeout();
             if (ackId == -1) { // timeout
-                state_.timeout();
+                state_->timeout();
             } else if (ackId == lastReceivedACKId_) {
-                state_.dupACK();
+                state_->dupACK();
             } else {  // new ACK
                 lastReceivedACKId_ = ackId;
                 removeACKedPacketsFromWindow(ackId);
-                state_.newACK(ackId);
+                state_->newACK(ackId);
             }
         }
     }
@@ -279,8 +277,8 @@ class CongAvoid: public State {  // Congestion avoidance state
             context_->ssthresh_ = round(context_->windowSize_ / 2) + 1;
             context_->windowSize_ = context_->ssthresh_ + 3;
             context_->nextAction_ = resend;
-            FastRecovery fastRecoveryState(context_);
-            context_->setState(fastRecoveryState);
+            FastRecovery *fastRecoveryState = new FastRecovery(context_);
+            context_->changeState((State *) fastRecoveryState);
         }
     }
 
@@ -296,24 +294,19 @@ class CongAvoid: public State {  // Congestion avoidance state
     }
 };
 
-class FastRecovery: public State {  // Fast recovery state
-    public:
-    FastRecovery(ReliableSender *context) : State(context){}
-
-    void dupACK() {
-        context_->windowSize_ += MSS;
-        context_->nextAction_ = sendNew;
-    }
-
-    void newACK(int ackId) {
-        context_->dupACKCnt_ = 0;
-        context_->windowSize_ = context_->ssthresh_;
-        context_->nextAction_ = sendNew;
-        CongAvoid congAvoidState(context_);
-        context_->setState(congAvoidState);
-        context_->leftPacketId_ = ackId;
-    }
-};
+FastRecovery::FastRecovery(ReliableSender *context) : State(context){}
+void FastRecovery::dupACK() {
+    context_->windowSize_ += MSS;
+    context_->nextAction_ = sendNew;
+}
+void FastRecovery::newACK(int ackId) {
+    context_->dupACKCnt_ = 0;
+    context_->windowSize_ = context_->ssthresh_;
+    context_->nextAction_ = sendNew;
+    CongAvoid *congAvoidState = new CongAvoid(context_);
+    context_->changeState((State *) congAvoidState);
+    context_->leftPacketId_ = ackId;
+}
 
 class SlowStart: public State {  // Slow start state
     public:
@@ -332,15 +325,15 @@ class SlowStart: public State {  // Slow start state
         context_->nextAction_ = sendNew;
         context_->leftPacketId_ = ackId;
         if (context_->windowSize_ >= context_->ssthresh_) {
-            CongAvoid congAvoidState(context_);
-            context_->setState(move(congAvoidState));
+            CongAvoid *congAvoidState = new CongAvoid(context_);
+            context_->changeState((State *) congAvoidState);
         }
     }
 };
 
 void timeoutBase(ReliableSender *context) {
-    SlowStart slowStartState(context);
-    context->setState(slowStartState);
+    SlowStart *slowStartState = new SlowStart(context);
+    context->changeState((State *) slowStartState);
     context->ssthresh_ = round(context->windowSize_ / 2) + 1;
     context->windowSize_ = MSS;
     context->dupACKCnt_ = 0;
@@ -378,8 +371,8 @@ void reliablyTransfer(char* hostname,
         diep(string("socket").c_str());
 
     ReliableSender sender(fp, bytesToTransfer, s, servinfo);
-    SlowStart initialState(&sender);
-    sender.setState(initialState);
+    SlowStart *initialState = new SlowStart(&sender);
+    sender.changeState((State *) initialState);
     sender.working();
 
     freeaddrinfo(servinfo);
@@ -387,7 +380,6 @@ void reliablyTransfer(char* hostname,
     fclose(fp);
     close(s);
     return;
-
 }
 
 /*
