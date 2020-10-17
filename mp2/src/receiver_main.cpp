@@ -105,7 +105,7 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
         if (incoming_packet->seq_no == nextPacketId) {
             // write to file
             int bytes_written = writeToFile(incoming_packet->data_size, incoming_packet->data, dest_file);
-            printf("%d bytes written to file\n", bytes_written);
+            // printf("%d bytes written to file\n", bytes_written);
             free(incoming_packet);
             incoming_packet = NULL;
             nextPacketId++;
@@ -113,7 +113,7 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
             while (buffer.find(nextPacketId) != buffer.end()) {
                 TCP_packet* packet = buffer.at(nextPacketId);
                 bytes_written = writeToFile(packet->data_size, packet->data, dest_file);
-                printf("%d bytes written to file\n", bytes_written);
+                // printf("%d bytes written to file\n", bytes_written);
                 buffer.erase(nextPacketId);
                 free(packet);
                 nextPacketId++;
@@ -135,7 +135,7 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
             perror("fail to send");
             exit(1);
         }
-        printf("ACK%d sent\n", send_back_ack_seq_no);
+        // printf("ACK%d sent\n", send_back_ack_seq_no);
 
         // break from loop if last packet has been ACK'd
         if (last_packet_found && last_packet_seq_no == send_back_ack_seq_no) {

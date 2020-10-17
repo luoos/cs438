@@ -30,7 +30,7 @@
 #define SENDER_BUF_SIZE 4096
 #define RECV_BUF_SIZE 4096
 #define CONTENT_SIZE 4088
-#define MSS 1
+#define MSS 2
 #define SOCKET_TIMEOUT_MILLISEC 25
 #define SOCKET_TIMEOUT_MICROSEC SOCKET_TIMEOUT_MILLISEC * 1000
 
@@ -285,6 +285,7 @@ class ReliableSender {
             if (DEBUG_LOG) {
                 printf("receive ACK %d\n", ackId);
             }
+            // printf("windowsize: %f\n", windowSize_);
             if (ackId == -1) { // timeout
                 state_->timeout();
             } else if (ackId == lastReceivedACKId_) {
