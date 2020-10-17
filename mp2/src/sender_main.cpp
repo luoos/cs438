@@ -20,61 +20,347 @@
 #include <string.h>
 #include <sys/time.h>
 #include <netdb.h>
+#include <math.h>
 
 #include <iostream>
+#include <deque>
 
 #define SENDER_BUF_SIZE 4096
 #define RECV_BUF_SIZE 4096
+#define CONTENT_SIZE 4088
+#define MSS 1
+#define SOCKET_TIMEOUT_MILLISEC 25
+#define SOCKET_TIMEOUT_MICROSEC SOCKET_TIMEOUT_MILLISEC * 1000
+
+using namespace std;
+
+class State;
+class SlowStart;
+class CongAvoid;
+class FastRecovery;
+class ReliableSender;
+
+enum SenderAction { sendNew, resend, waitACK };
+
+void timeoutBase(ReliableSender *sender);
 
 /*
  * Packet structure: packet id + content size +    content
- *                    4 bytes       4 bytes        up to 4088 bytes
+ *                    4 bytes       4 bytes       4088 bytes
  *
- * Total size of a packet: up to 4096 bytes
+ * Total size of a packet: 4096 bytes
+ * The size of a packet is fixed, even though the content is less than 4088 bytes
  *
  * Receiver behavior:
  * 1. Whenever the receiver receives a packet, it send the packet id back to the sender.
  * 2. Write packets to file sequentially. If there is a packet lost, the after packets queue until
  *    the lost packet gets received.
  *
- * Sender behavior:
- * 1. Set num_packet to a inital value, like 16
- * 2. For each round
- *      2.1 read file and construct num_packet packets
- *      2.2 add all built packets to a map, the key is the packet_id
- *      2.3 send all packets in the map
- *      2.4 go to waiting state with a timeout. During this time, the sender should receive
- *          some packet_ids from receiver. For each packet_id received, remove corresponding
- *          item from the map.
- *      2.5 exit the waiting state if the map is empty or timeout
- *      2.6 if the map is empty, double the num_packet, otherwise halve it
- *      2.7 go to the next round
+ * Sender behavior: just follows the tcp protocol
  */
 
 struct sockaddr_in si_other;
 int s, slen;
 
-void diep(char *s) {
+void diep(const char *s) {
     perror(s);
     exit(1);
 }
 
+class Packet {
+    private:
 
-void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, unsigned long long int bytesToTransfer) {
-    int sent_bytes, recv_bytes;
-    char send_buf[SENDER_BUF_SIZE] = "hello";  // TODO: remove the initial value
-    char recv_buf[RECV_BUF_SIZE];
+    int id_, content_len_;
+    char content_[CONTENT_SIZE];
+
+    public:
+
+    Packet(int id, int content_len, char* buf) {
+        id_ = id;
+        content_len_ = content_len;
+        memcpy(content_, buf, CONTENT_SIZE);
+    }
+
+    int id() {
+        return id_;
+    }
+
+    void fillData(char *buf) {
+        memcpy(buf, &id_, 4);  // int, 4 bytes
+        memcpy(buf+4, &content_len_, 4);  // int, 4 bytes
+        memcpy(buf+8, content_, CONTENT_SIZE);  // 4088 bytes
+    }
+};
+
+class State {
+    protected:
+    ReliableSender *context_;
+
+    public:
+    State() {}
+    State(ReliableSender *sender) {
+        context_ = sender;
+    }
+    virtual void dupACK() {}
+    virtual void newACK(int ackId) {}
+    void timeout() {
+        timeoutBase(context_);
+    }
+};
+
+class ReliableSender {
+    private:
+    int lastReceivedACKId_;
+
+    FILE *fp_;
+    unsigned long long remainingBytesToRead_;  // may not equal to file size
+    bool isFileExhausted_;  // true if either the file is exhausted or
+                            // remainingBytesToRead_ turns to 0 or negative
+    State state_;
+    deque<Packet> sentWithoutAckPackets;
+    char fileReadBuf_[CONTENT_SIZE];
+    char sendBuf_[SENDER_BUF_SIZE];
+    char recvBuf_[RECV_BUF_SIZE];
+    int socket_;
+    struct addrinfo *receiverinfo_;
+    struct timeval timeoutVal_;
+
+    deque<Packet> loadNewPacketsFromFile() {
+        deque<Packet> new_deq;
+        if (isFileExhausted_) return new_deq;
+
+        int packetIdToAdd = sentWithoutAckPackets.size() == 0 ?
+                leftPacketId_ : sentWithoutAckPackets.back().id() + 1;
+        int bytesRead;
+        int contentSize;
+        int newPacketCnt = round(windowSize_) - sentWithoutAckPackets.size();
+        while (newPacketCnt-- > 0) {
+            bytesRead = fread(fileReadBuf_, 1, CONTENT_SIZE, fp_);
+            contentSize = remainingBytesToRead_ >= bytesRead ?
+                    bytesRead : remainingBytesToRead_;
+            Packet packet(packetIdToAdd++, contentSize, fileReadBuf_);
+            remainingBytesToRead_ -= bytesRead;
+            new_deq.push_back(move(packet));
+            if (bytesRead == 0 || remainingBytesToRead_ <= 0) {
+                isFileExhausted_ = true;
+                break;
+            }
+        }
+        return new_deq;
+    }
+
+    static int getLargestACKId(char *buf, int bytesRead) {
+        int largest_id = 0, packet_id, i = 0;
+        while (i + 4 <= bytesRead) {
+            memcpy(&packet_id, buf+i, 4);
+            if (packet_id > largest_id) {
+                largest_id = packet_id;
+            }
+            i += 4;
+        }
+        return largest_id;
+    }
+
+    public:
+    float windowSize_;
+    int ssthresh_;
+    int leftPacketId_;  // the left side of the sliding window, should be the next ACK id
+    int dupACKCnt_;
+    SenderAction nextAction_;
+
+    ReliableSender(FILE *fp, unsigned long long bytesToTransfer, int socket,
+            struct addrinfo *receiverinfo) {
+        windowSize_ = MSS;
+        ssthresh_ = 64;
+        leftPacketId_ = 0;
+        lastReceivedACKId_ = -1;
+        dupACKCnt_ = 0;
+        nextAction_ = sendNew;
+        remainingBytesToRead_ = bytesToTransfer;
+        fp_ = fp;
+        isFileExhausted_ = false;
+        socket_ = socket;
+        receiverinfo_ = receiverinfo;
+        timeoutVal_.tv_sec = 0;
+        timeoutVal_.tv_usec = SOCKET_TIMEOUT_MICROSEC;
+        memset(recvBuf_, 0, RECV_BUF_SIZE);
+    }
+
+    void setState(State state) {
+        state_ = state;
+    }
+
+    int sendSinglePacket(Packet *packet) {
+        int sentBytes;
+        packet->fillData(sendBuf_);
+        sentBytes = sendto(socket_, sendBuf_, SENDER_BUF_SIZE, 0,
+                receiverinfo_->ai_addr, receiverinfo_->ai_addrlen);
+        if (sentBytes == -1) {
+            perror("fail to send packet");
+        }
+        return sentBytes;
+    }
+
+    void sendNewPackets() {
+        deque<Packet> newPackets = loadNewPacketsFromFile();
+        for (auto it = newPackets.begin(); it != newPackets.end(); it++) {
+            // send packet
+            sendSinglePacket(&(*it));
+
+            // push to sliding window
+            sentWithoutAckPackets.push_back(*it);
+        }
+    }
+
+    void resendOldPacket() {
+        sendSinglePacket(&sentWithoutAckPackets[0]);
+    }
+
+    void setSocketRecvTimeout() {
+        // set once or set everytime before calling recvfrom?
+        if (setsockopt(socket_, SOL_SOCKET, SO_RCVTIMEO, &timeoutVal_,
+                       sizeof(timeoutVal_)) < 0) {
+            perror("fail to set socket timeout");
+        }
+    }
+
+    int getACKIdOrTimeout() {
+        setSocketRecvTimeout();
+        int recvBytes = recvfrom(socket_, recvBuf_, RECV_BUF_SIZE, 0, NULL, NULL);
+        if (recvBytes < 0) {
+            return -1;  // timeout
+        } else if (recvBytes < 4) {
+            perror("unable to decode ACK id");
+            return lastReceivedACKId_;
+        } else {
+            return max(getLargestACKId(recvBuf_, recvBytes), lastReceivedACKId_);
+        }
+    }
+
+    bool isFinished() {
+        return sentWithoutAckPackets.size() == 0 && isFileExhausted_;
+    }
+
+    void removeACKedPacketsFromWindow(int ackId) {
+        while (sentWithoutAckPackets.size() > 0 && sentWithoutAckPackets[0].id() <= ackId) {
+            sentWithoutAckPackets.pop_front();
+        }
+    }
+
+    void working() {
+        while (!isFinished()) {
+            switch(nextAction_) {
+                case sendNew: sendNewPackets(); break;
+                case resend: resendOldPacket(); break;
+                case waitACK: break;
+            }
+            int ackId = getACKIdOrTimeout();
+            if (ackId == -1) { // timeout
+                state_.timeout();
+            } else if (ackId == lastReceivedACKId_) {
+                state_.dupACK();
+            } else {  // new ACK
+                lastReceivedACKId_ = ackId;
+                removeACKedPacketsFromWindow(ackId);
+                state_.newACK(ackId);
+            }
+        }
+    }
+};
+
+class CongAvoid: public State {  // Congestion avoidance state
+    public:
+    CongAvoid(ReliableSender *context) : State(context){}
+
+    void dupACK() {
+        context_->dupACKCnt_++;
+        context_->nextAction_ = waitACK;
+        if (context_->dupACKCnt_ >= 3) {
+            context_->ssthresh_ = round(context_->windowSize_ / 2) + 1;
+            context_->windowSize_ = context_->ssthresh_ + 3;
+            context_->nextAction_ = resend;
+            FastRecovery fastRecoveryState(context_);
+            context_->setState(fastRecoveryState);
+        }
+    }
+
+    void newACK(int ackId) {
+        context_->dupACKCnt_ = 0;
+        int step = ackId - context_->leftPacketId_ + 1;
+        while (step-- > 0) {
+            context_->windowSize_ =
+                    context_->windowSize_ + MSS * (MSS / context_->windowSize_);
+        }
+        context_->nextAction_ = sendNew;
+        context_->leftPacketId_ = ackId;
+    }
+};
+
+class FastRecovery: public State {  // Fast recovery state
+    public:
+    FastRecovery(ReliableSender *context) : State(context){}
+
+    void dupACK() {
+        context_->windowSize_ += MSS;
+        context_->nextAction_ = sendNew;
+    }
+
+    void newACK(int ackId) {
+        context_->dupACKCnt_ = 0;
+        context_->windowSize_ = context_->ssthresh_;
+        context_->nextAction_ = sendNew;
+        CongAvoid congAvoidState(context_);
+        context_->setState(congAvoidState);
+        context_->leftPacketId_ = ackId;
+    }
+};
+
+class SlowStart: public State {  // Slow start state
+    public:
+
+    SlowStart(ReliableSender *context) : State(context){}
+
+    void dupACK() {
+        context_->dupACKCnt_++;
+        context_->nextAction_ = waitACK;
+    }
+
+    void newACK(int ackId) {
+        context_->dupACKCnt_ = 0;
+        int step = ackId - context_->leftPacketId_ + 1;
+        context_->windowSize_ += MSS * step;
+        context_->nextAction_ = sendNew;
+        context_->leftPacketId_ = ackId;
+        if (context_->windowSize_ >= context_->ssthresh_) {
+            CongAvoid congAvoidState(context_);
+            context_->setState(move(congAvoidState));
+        }
+    }
+};
+
+void timeoutBase(ReliableSender *context) {
+    SlowStart slowStartState(context);
+    context->setState(slowStartState);
+    context->ssthresh_ = round(context->windowSize_ / 2) + 1;
+    context->windowSize_ = MSS;
+    context->dupACKCnt_ = 0;
+    context->nextAction_ = resend;
+}
+
+void reliablyTransfer(char* hostname,
+                      char* hostUDPport,
+                      char* filename,
+                      unsigned long long int bytesToTransfer) {
+    // assume bytesToTransfer is equal the length of the target file
+    // the above statement could be wrong
     struct addrinfo hints, *servinfo;
-    struct sockaddr_storage other_addr;
-    socklen_t other_addr_len = sizeof other_addr;
-    memset(recv_buf, 0, RECV_BUF_SIZE);
     //Open the file
-    // FILE *fp;
-    // fp = fopen(filename, "rb");
-    // if (fp == NULL) {
-    //     printf("Could not open file to send.");
-    //     exit(1);
-    // }
+    FILE *fp;
+    fp = fopen(filename, "rb");
+    if (fp == NULL) {
+        printf("Could not open file to send.");
+        exit(1);
+    }
 
     /* Determine how many bytes to transfer */
 
@@ -89,25 +375,16 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, unsigne
     }
 
     if ((s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1)
-        diep("socket");
+        diep(string("socket").c_str());
 
-    /* Send data */
-    if ((sent_bytes = sendto(s, send_buf, 5, 0,  // just send a "hello" for now
-            servinfo->ai_addr, servinfo->ai_addrlen)) == -1) {
-        perror("fail to send");
-        exit(1);
-    }
+    ReliableSender sender(fp, bytesToTransfer, s, servinfo);
+    SlowStart initialState(&sender);
+    sender.setState(initialState);
+    sender.working();
 
-    /* Receive ack */
-    if ((recv_bytes = recvfrom(s, recv_buf, RECV_BUF_SIZE, 0,
-            (struct sockaddr *)&other_addr, &other_addr_len)) == -1) {
-        perror("recv error");
-        exit(1);
-    }
-
-    printf("%s\n", recv_buf);
-
+    freeaddrinfo(servinfo);
     printf("Closing the socket\n");
+    fclose(fp);
     close(s);
     return;
 
@@ -117,11 +394,7 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, unsigne
  *
  */
 int main(int argc, char** argv) {
-
-    unsigned short int udpPort;
     unsigned long long int numBytes;
-
-    std::cout << "output test" << std::endl;
 
     if (argc != 5) {
         fprintf(stderr, "usage: %s receiver_hostname receiver_port filename_to_xfer bytes_to_xfer\n\n", argv[0]);
