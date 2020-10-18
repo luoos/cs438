@@ -82,8 +82,7 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
         // receive data
         if ((recv_bytes = recvfrom(s, buf, RECV_BUF_SIZE, 0,
                 (struct sockaddr*) &other_addr, &other_addr_len)) == -1) {
-            perror("recv error");
-            exit(1);
+            diep("recv error");
         }
         // decode and store data
         incoming_packet = (TCP_packet*) malloc(TCP_PACKET_SIZE);
@@ -94,40 +93,26 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
             last_packet_seq_no = incoming_packet->seq_no;
         }
 
-        // write data to file
-        if (incoming_packet->seq_no == nextPacketId) {
-            // write to file
-            int bytes_written = writeToFile(incoming_packet->data_size,
-                                            incoming_packet->data, dest_file);
-            // printf("%d bytes written to file\n", bytes_written);
-            free(incoming_packet);
-            incoming_packet = NULL;
-            nextPacketId++;
-            // check cached packet in map and write them to file
-            while (buffer.find(nextPacketId) != buffer.end()) {
-                TCP_packet* packet = buffer.at(nextPacketId);
-                bytes_written = writeToFile(packet->data_size, packet->data, dest_file);
-                // printf("%d bytes written to file\n", bytes_written);
-                buffer.erase(nextPacketId);
-                free(packet);
-                nextPacketId++;
-            }
-            send_back_ack_seq_no = nextPacketId - 1;
-        } else if (buffer.find(incoming_packet->seq_no) == buffer.end() &&
-                    incoming_packet->seq_no > nextPacketId) {
-            // cache this packet
+        if (incoming_packet->seq_no >= nextPacketId) {
             buffer.insert({incoming_packet->seq_no, incoming_packet});
         } else {
             free(incoming_packet);
-            incoming_packet = NULL;
         }
+
+        while (buffer.find(nextPacketId) != buffer.end()) {
+            TCP_packet *packet = buffer.at(nextPacketId);
+            writeToFile(packet->data_size, packet->data, dest_file);
+            buffer.erase(nextPacketId);
+            free(packet);
+            nextPacketId++;
+        }
+        send_back_ack_seq_no = nextPacketId - 1;
 
         // send ack
         memcpy(ack_buf, &send_back_ack_seq_no, sizeof send_back_ack_seq_no);
         if (sendto(s, ack_buf, sizeof send_back_ack_seq_no, 0,
                 (struct sockaddr *)&other_addr, other_addr_len) == -1) {
-            perror("fail to send");
-            exit(1);
+            diep("fail to send");
         }
         // printf("ACK%d sent\n", send_back_ack_seq_no);
 
