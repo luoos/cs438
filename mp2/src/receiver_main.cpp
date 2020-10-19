@@ -93,11 +93,13 @@ void reliablyReceive(unsigned short int myUDPport, char* destinationFile) {
             last_packet_seq_no = incoming_packet->seq_no;
         }
 
-        if (incoming_packet->seq_no >= nextPacketId) {
+        if (incoming_packet->seq_no >= nextPacketId
+                && buffer.find(incoming_packet->seq_no) == buffer.end()) {
             buffer.insert({incoming_packet->seq_no, incoming_packet});
         } else {
             free(incoming_packet);
         }
+        incoming_packet = nullptr;
 
         while (buffer.find(nextPacketId) != buffer.end()) {
             TCP_packet *packet = buffer.at(nextPacketId);
