@@ -52,24 +52,23 @@ linkStateInfo dijkstra(GraphData* graph, size_t source) {
     }
     preds.insert(std::pair<size_t, size_t>(source, source));
     dists.insert(std::pair<size_t, int>(source, 0));
-
     // loop through graph
     while (finishedNodes.size() < vertices.size()) {
         // find smallest node not in finishedNodes
         size_t smallestNode = 0;
         int smallestDist = -1;
         for (size_t vertex : vertices) {
-            if (finishedNodes.find(vertex) != finishedNodes.end()) {
-                continue;
-            }
-
-            if (smallestDist == -1) {
-                smallestNode = vertex;
-                smallestDist = dists.at(vertex);
-            } 
-            if (smallestDist > dists.at(vertex)) {
-                smallestNode = vertex;
-                smallestDist = dists.at(vertex);
+            if (finishedNodes.find(vertex) == finishedNodes.end()) {
+                // initialize the smallestNode and smallestDist values
+                if (smallestDist == -1) {
+                    smallestNode = vertex;
+                    smallestDist = dists.at(vertex);
+                } 
+                // update only if the new distance is smaller
+                if (smallestDist > dists.at(vertex)) {
+                    smallestNode = vertex;
+                    smallestDist = dists.at(vertex);
+                }            
             }
         }
         // add node to finishedNodes
@@ -82,8 +81,13 @@ linkStateInfo dijkstra(GraphData* graph, size_t source) {
             // update if new distance is shorter than current
             // tiebreak by choosing path with smaller node id
             if (newDist <= dists.at(neighbor)) {
+                // ignore if both have infinite distance
+                if (newDist == INT_MAX &&  dists.at(neighbor) == INT_MAX) {
+                    continue;
+                }
+                // tiebreak
                 if (preds.find(neighbor) != preds.end() && 
-                    preds.at(neighbor) >= smallestNode && 
+                    preds.at(neighbor) <= smallestNode && 
                     newDist == dists.at(neighbor)) {
                     continue;
                 }
@@ -114,7 +118,9 @@ linkStateInfo dijkstra(GraphData* graph, size_t source) {
 void outputTable(std::ofstream& outputfile, size_t source, std::set<size_t> vertices, struct linkStateInfo& pathInfo) {
     // output the forwarding table
     for (size_t dest : vertices) {
+        //std::cout << "check: " << dest;
         if (pathInfo.preds.find(dest) != pathInfo.preds.end()) {
+            //std::cout << " table: " << dest;
             // derive nexthop
             size_t nexthop = dest;
             while (source != pathInfo.preds.at(nexthop)) {
@@ -135,7 +141,7 @@ void outputTable(std::ofstream& outputfile, size_t source, std::set<size_t> vert
  */ 
 void outputMessage(std::ofstream& outputfile, size_t source, size_t dest, std::string message, linkStateInfo& info) {
     // if unreachable output infinite cost and unreachable hops
-    if (info.dists.find(dest) == info.dists.end()) {
+    if (info.preds.find(dest) == info.preds.end()) {
         outputfile << "from " << source << " to " << dest << " cost infinite hops unreachable message " << message << "\n";
         return;
     }
@@ -153,7 +159,7 @@ void outputMessage(std::ofstream& outputfile, size_t source, size_t dest, std::s
     for (int i = path.size() - 1; i >= 0; i--) {
         outputfile << path[i] << " ";
     }
-    outputfile << message << "\n";
+    outputfile << "message " << message << "\n";
 }
 
 int main(int argc, char** argv) {
@@ -220,7 +226,6 @@ int main(int argc, char** argv) {
             // output the forwarding table
             outputTable(outputfile, vertex, vertices, dijkstraMap.at(vertex));
         }
-
         // loop through each message
         messagefile.clear();
         messagefile.open(argv[2]);
