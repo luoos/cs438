@@ -125,6 +125,7 @@ GraphData* parseGraphData(std::string fname) {
     while (graphFile >> source >> dest >> cost) {
         graph->insertEdge(source, dest, cost);
     }
+	graphFile.close();
     
     return graph;
 }
