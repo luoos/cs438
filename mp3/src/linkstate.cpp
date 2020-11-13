@@ -105,7 +105,8 @@ linkStateInfo dijkstra(GraphData* graph, size_t source) {
 }
 
 /**
- * Prints out the forwarding table for each source node on graph
+ * Sends the forwarding table for each source node on graph to output file
+ * input outfile - file stream we are sending our output to
  * input source - source node of the forwarding table
  * input vertices - all the vertices in the graph
  * input pathInfo - structure of dijkstra predecessors and distances to reconstruct paths
@@ -124,6 +125,14 @@ void outputTable(std::ofstream& outputfile, size_t source, std::set<size_t> vert
     }
 }
 
+/**
+ * Sends message output for each source and dest to output file
+ * input outfile - file stream we are sending our output to
+ * input source - source node of message
+ * input dest - dest node of message
+ * input message - message portion of messagefile
+ * input info - structure of dijkstra predecessors and distances to reconstruct paths
+ */ 
 void outputMessage(std::ofstream& outputfile, size_t source, size_t dest, std::string message, linkStateInfo& info) {
     // if unreachable output infinite cost and unreachable hops
     if (info.dists.find(dest) == info.dists.end()) {
