@@ -11,6 +11,7 @@
 #include <sstream>
 
 #define INFINI 19997997
+#define NOHOP -1
 
 using namespace std;
 
@@ -43,6 +44,7 @@ class NetworkEmulator {
     Node* getNode(int id);
     void setUpNodes();
     void writeAllForwardingTables(ofstream *fpOut);
+    void disconnectNode(int nodeId);
     void applyMessage(Message mesg);
     void sendMessage(Message mesg);
     void converge();
@@ -87,7 +89,7 @@ class Node {
             return make_pair(selfId_, 0);
         }
         int minCost = INFINI;
-        int nextHop = -1;
+        int nextHop = NOHOP;
         for (auto &entry : costToNeighbors_) {
             int cost = entry.second + costFromNeighborToDestination(entry.first, desId);
             if (cost < minCost) {
@@ -118,6 +120,8 @@ class Node {
     void setNeighbor(int neighborId, int cost) {
         if (cost == -999) {  // special int means no direct link
             costToNeighbors_.erase(neighborId);
+            disVectors_[selfId_][neighborId] = INFINI;
+            forwardingTable_[neighborId] = NOHOP;
         } else {
             costToNeighbors_[neighborId] = cost;
         }
@@ -128,6 +132,7 @@ class Node {
         maxId_ = maxId;
         for (int nodeId = minId; nodeId <= maxId; nodeId++) {
             disVectors_[selfId_][nodeId] = INFINI;
+            forwardingTable_[nodeId] = NOHOP;
         }
     }
 
@@ -164,6 +169,9 @@ class Node {
         for (int destId = minId_; destId <= maxId_; destId++) {
             int cost = disVectors_[selfId_][destId];
             int nextHop = forwardingTable_[destId];
+            if (nextHop == NOHOP) {
+                continue;
+            }
             *fpOut << destId << " " << nextHop << " " << cost << endl;
         }
     }
@@ -175,6 +183,15 @@ class Node {
 
     int getCost(int destId) {
         return disVectors_[selfId_][destId];
+    }
+
+    void disconnectNode(int disconnectId) {
+        if (selfId_ == disconnectId) return;
+
+        for (int nodeId = minId_; nodeId <= maxId_; nodeId++) {
+            disVectors_[nodeId][disconnectId] = INFINI;
+        }
+        forwardingTable_[disconnectId] = NOHOP;
     }
 };
 
@@ -216,9 +233,21 @@ void NetworkEmulator::writeAllForwardingTables(ofstream *fpOut) {
     }
 }
 
+void NetworkEmulator::disconnectNode(int disconnectId) {
+    for (int nodeId = minId_; nodeId <= maxId_; nodeId++) {
+        nodes_[nodeId]->disconnectNode(disconnectId);
+    }
+    for (int i = 0; i < messageQueue_.size(); i++) {
+        messageQueue_[i].disVector_[disconnectId] = INFINI;
+    }
+}
+
 void NetworkEmulator::applyMessage(Message mesg) {
     for (int nodeId : mesg.neighborIds_) {
         nodes_[nodeId]->recvNewDisVector(mesg.ownerId_, mesg.disVector_);
+    }
+    if (mesg.neighborIds_.size() == 0) {
+        disconnectNode(mesg.ownerId_);
     }
 }
 
@@ -256,7 +285,7 @@ void NetworkEmulator::applyChange(tuple<int, int, int> change) {
 vector<int> NetworkEmulator::findPath(int srcId, int destId) {
     vector<int> path;
     int nextHop = srcId;
-    while (nextHop != destId) {
+    while (nextHop != destId && nextHop != NOHOP) {
         path.push_back(nextHop);
         nextHop = nodes_[nextHop]->forward(destId);
     }
@@ -269,9 +298,14 @@ void NetworkEmulator::writePacketRoute(ofstream *fpOut) {
         int cost = nodes_[srcId]->getCost(destId);
         string message = get<2>(it);
         vector<int> path = findPath(srcId, destId);
-        *fpOut << "from " << srcId << " to " << destId << " cost " << cost << " hops ";
-        for (int id : path) {
-            *fpOut << id << " ";
+        *fpOut << "from " << srcId << " to " << destId << " cost ";
+        if (cost == INFINI) {
+            *fpOut << "infinite hops unreachable ";
+        } else {
+            *fpOut << cost << " hops ";
+            for (int id : path) {
+                *fpOut << id << " ";
+            }
         }
         *fpOut << "message " << message << endl;
     }
@@ -333,23 +367,11 @@ void parseMessageFile(string messageFileName, NetworkEmulator *emulator) {
 }
 
 int main(int argc, char** argv) {
-    //printf("Number of arguments: %d", argc);
     if (argc != 4) {
         printf("Usage: ./distvec topofile messagefile changesfile\n");
         return -1;
     }
 
-    // FILE *fpOut;
-    // fpOut = fopen("output.txt", "w");
-    // fclose(fpOut);
-    // unordered_map<int, map<int, int> > m;
-    // cout << &m << " 1" << "\n";
-    // update(&m);
-    // cout << &m << " 3" << "\n";
-    // cout << m[1][2] << "\n";
-
-    // cout << &(m[1]) << " at(1)\n";
-    // check(m[1]);
     ofstream *fpOut = new ofstream("output.txt");
     NetworkEmulator emulator = parseTopologyAndCreateEmulator(argv[1]);
     parseChageFile(argv[3], &emulator);
