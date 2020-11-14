@@ -172,8 +172,8 @@ int main(int argc, char** argv) {
     // fpOut = fopen("output.txt", "w");
     std::ofstream outputfile;
     outputfile.open("output.txt");
-	// open topofile to get graph topology
-	GraphData* topoGraph = parseGraphData(argv[1]);
+    // open topofile to get graph topology
+    GraphData* topoGraph = parseGraphData(argv[1]);
     // hold every dijkstra data output in a map
     std::unordered_map<size_t, linkStateInfo> dijkstraMap;
     // loop through every node (from 1 to N)
@@ -247,4 +247,3 @@ int main(int argc, char** argv) {
     delete topoGraph;
     return 0;
 }
-

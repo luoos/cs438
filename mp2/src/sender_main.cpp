@@ -1,6 +1,6 @@
 /*
  * File:   sender_main.c
- * Author:
+ * Author: Jun Luo
  *
  * Created on
  */
@@ -39,12 +39,6 @@
 #define DEBUG_PACKET_TRAFFIC 1 && DEBUG_LOG
 
 using namespace std;
-
-class State;
-class SlowStart;
-class CongAvoid;
-class FastRecovery;
-class ReliableSender;
 
 enum SenderAction { sendNew, resend, waitACK };
 
@@ -116,7 +110,7 @@ class ReliableSender {
     bool isFileExhausted_;  // true if either the file is exhausted or
                             // remainingBytesToRead_ turns to 0 or negative
     State *state_;
-    deque<Packet> sentWithoutAckPackets;
+    deque<Packet> sentButNotAckedPackets;
     char fileReadBuf_[CONTENT_SIZE];
     char sendBuf_[SENDER_BUF_SIZE];
     char recvBuf_[RECV_BUF_SIZE];
@@ -128,14 +122,14 @@ class ReliableSender {
         deque<Packet> new_deq;
         if (isFileExhausted_) return new_deq;
 
-        int packetIdToAdd = sentWithoutAckPackets.size() == 0 ?
-                leftPacketId_ : sentWithoutAckPackets.back().id() + 1;
+        int packetIdToAdd = sentButNotAckedPackets.size() == 0 ?
+                leftPacketId_ : sentButNotAckedPackets.back().id() + 1;
         int bytesRead;
         int contentSize;
-        int newPacketCnt = ((int)ceil(windowSize_)) - sentWithoutAckPackets.size();
+        int newPacketCnt = ((int)ceil(windowSize_)) - sentButNotAckedPackets.size();
         if (DEBUG_LOAD_PACKET) {
             printf("newPacketCnt: %d, windowSize: %d, deq size: %lu\n",
-                    newPacketCnt, ((int)ceil(windowSize_)), sentWithoutAckPackets.size());
+                    newPacketCnt, ((int)ceil(windowSize_)), sentButNotAckedPackets.size());
         }
         while (newPacketCnt-- > 0) {
             if (remainingBytesToRead_ == 0) {
@@ -235,12 +229,12 @@ class ReliableSender {
             sendSinglePacket(&(*it));
 
             // push to sliding window
-            sentWithoutAckPackets.push_back(*it);
+            sentButNotAckedPackets.push_back(*it);
         }
     }
 
     void resendOldPacket() {
-        sendSinglePacket(&sentWithoutAckPackets[0]);
+        sendSinglePacket(&sentButNotAckedPackets[0]);
     }
 
     void setSocketRecvTimeout() {
@@ -265,26 +259,27 @@ class ReliableSender {
     }
 
     bool isFinished() {
-        return sentWithoutAckPackets.size() == 0 && isFileExhausted_;
+        return isFileExhausted_ && sentButNotAckedPackets.size() == 0;
     }
 
     void removeACKedPacketsFromWindow(int ackId) {
-        while (sentWithoutAckPackets.size() > 0 && sentWithoutAckPackets[0].id() <= ackId) {
-            sentWithoutAckPackets.pop_front();
+        while (sentButNotAckedPackets.size() > 0 && sentButNotAckedPackets[0].id() <= ackId) {
+            sentButNotAckedPackets.pop_front();
         }
     }
 
     void working() {
         while (!isFinished()) {
             switch(nextAction_) {
-                case sendNew: sendNewPackets(); break;
-                case resend: resendOldPacket(); break;
-                case waitACK: break;
+                case sendNew: sendNewPackets();   break;
+                case resend: resendOldPacket();   break;
+                case waitACK: /* get ACK below */ break;
             }
             int ackId = getACKIdOrTimeout();
             if (DEBUG_LOG) {
                 printf("receive ACK %d\n", ackId);
             }
+            // printf("windowsize: %f\n", windowSize_);
             if (ackId == -1) { // timeout
                 state_->timeout();
             } else if (ackId == lastReceivedACKId_) {
@@ -319,26 +314,12 @@ class CongAvoid: public State {  // Congestion avoidance state
         int step = ackId - context_->leftPacketId_ + 1;
         while (step-- > 0) {
             context_->windowSize_ =
-                    context_->windowSize_ + MSS * (MSS / context_->windowSize_);
+                    context_->windowSize_ + MSS * 2 * (MSS / floor(context_->windowSize_));
         }
         context_->nextAction_ = sendNew;
         context_->leftPacketId_ = ackId + 1;
     }
 };
-
-FastRecovery::FastRecovery(ReliableSender *context) : State(context){}
-void FastRecovery::dupACK() {
-    context_->windowSize_ += MSS;
-    context_->nextAction_ = sendNew;
-}
-void FastRecovery::newACK(int ackId) {
-    context_->dupACKCnt_ = 0;
-    context_->windowSize_ = context_->ssthresh_;
-    context_->nextAction_ = sendNew;
-    CongAvoid *congAvoidState = new CongAvoid(context_);
-    context_->changeState((State *) congAvoidState);
-    context_->leftPacketId_ = ackId + 1;
-}
 
 class SlowStart: public State {  // Slow start state
     public:
@@ -362,6 +343,21 @@ class SlowStart: public State {  // Slow start state
         }
     }
 };
+
+// declare this class in header, to avoid incomplete type compile error
+FastRecovery::FastRecovery(ReliableSender *context) : State(context){}
+void FastRecovery::dupACK() {
+    context_->windowSize_ += MSS;
+    context_->nextAction_ = sendNew;
+}
+void FastRecovery::newACK(int ackId) {
+    context_->dupACKCnt_ = 0;
+    context_->windowSize_ = context_->ssthresh_;
+    context_->nextAction_ = sendNew;
+    CongAvoid *congAvoidState = new CongAvoid(context_);
+    context_->changeState((State *) congAvoidState);
+    context_->leftPacketId_ = ackId + 1;
+}
 
 void timeoutBase(ReliableSender *context) {
     SlowStart *slowStartState = new SlowStart(context);

@@ -50,6 +50,7 @@ linkstate: $(LINKSTATEOBJECTS)
 distvec: $(DISTVECOBJECTS)
 	$(CPP) $(COMPILERFLAGS) $^ -o $@ $(LINKLIBS)
 
+
 #talker: $(TALKEROBJECTS)
 #	$(CC) $(COMPILERFLAGS) $^ -o $@ $(LINKLIBS)
 
