@@ -7,7 +7,7 @@ LINKLIBS = -lpthread
 
 #The components of each program. When you create a src/foo.c source file, add obj/foo.o here, separated
 #by a space (e.g. SOMEOBJECTS = obj/foo.o obj/bar.o obj/baz.o).
-LINKSTATEOBJECTS = obj/linkstate.o
+LINKSTATEOBJECTS = obj/linkstate.o obj/graphdata.o
 DISTVECOBJECTS = obj/distvec.o
 #CLIENTOBJECTS = obj/sender_main.o
 #TALKEROBJECTS = obj/talker.o
@@ -67,7 +67,7 @@ clean :
 #The % sign means "match one or more characters". You specify it in the target, and when a file
 #dependency is checked, if its name matches this pattern, this rule is used. You can also use the %
 #in your list of dependencies, and it will insert whatever characters were matched for the target name.
-obj/%.o: src/%.cpp
+obj/%.o: src/%.cpp 
 	$(CPP) $(COMPILERFLAGS) -c -o $@ $<
 obj:
 	mkdir -p obj
