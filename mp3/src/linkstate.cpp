@@ -196,7 +196,9 @@ int main(int argc, char** argv) {
     while (std::getline(messagefile, line)) {
         std::stringstream ss(line);
         ss >> message_source >> message_dest;
-        message = line.substr(4);
+        int afterFirstSpaceInd = line.find(' ') + 1;
+        int afterSecSpaceInd = line.find(' ', afterFirstSpaceInd) + 1;
+        message = line.substr(afterSecSpaceInd);
         struct linkStateInfo info = dijkstraMap.at(message_source);
         outputMessage(outputfile, message_source, message_dest, message, info);
     }
