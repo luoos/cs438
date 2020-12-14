@@ -1,3 +1,6 @@
+/*
+ * Author: Carl Guo
+ */
 #ifndef GRAPHDATA_H
 #define GRAPHDATA_H
 
@@ -23,7 +26,7 @@ public:
 	 * input edges - edges stored as <source, [dests]>
 	 * input edgeWeights - edge weights stored as <source, <dest, int>>, the source < dest always
 	 */
-	GraphData(std::set<size_t> vertices, 
+	GraphData(std::set<size_t> vertices,
 				std::unordered_map<size_t, std::set<size_t>> edges,
 				std::unordered_map<size_t, std::unordered_map<size_t, size_t>> edgeWeights);
 
@@ -45,7 +48,7 @@ public:
 	int getEdgeWeight(size_t source, size_t dest);
 
 	/**
-	 * insert an edge into the graph 
+	 * insert an edge into the graph
 	 * input source - source node of edge
 	 * input dest - dest node of edge
 	 * input cost - cost of the edge
@@ -77,7 +80,7 @@ public:
 
 	/**
 	 * Gets all the edges of the graph
-	 * output - map of every node and its edges 
+	 * output - map of every node and its edges
 	 */
     std::unordered_map<size_t, std::set<size_t>> getEdges();
 

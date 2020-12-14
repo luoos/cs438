@@ -1,3 +1,7 @@
+/*
+ * Author: Jun Luo
+ */
+
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>

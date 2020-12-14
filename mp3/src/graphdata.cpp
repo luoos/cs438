@@ -1,6 +1,9 @@
+/*
+ * Author: Carl Guo
+ */
 #include "graphdata.h"
 
-GraphData::GraphData(std::set<size_t> vertices, 
+GraphData::GraphData(std::set<size_t> vertices,
 					std::unordered_map<size_t, std::set<size_t>> edges,
 					std::unordered_map<size_t, std::unordered_map<size_t, size_t>> edgeWeights) {
 	this->vertices = vertices;
@@ -58,7 +61,7 @@ void GraphData::insertEdge(size_t source, size_t dest, size_t cost) {
 		std::set<size_t> neighbors;
 		neighbors.insert(source);
 		this->edges.insert(std::pair<size_t, std::set<size_t>>(dest, neighbors));
-	}	
+	}
 	// add to edgeWeight
 	if (source > dest) {
 		std::swap(source, dest);
@@ -69,7 +72,7 @@ void GraphData::insertEdge(size_t source, size_t dest, size_t cost) {
 		std::unordered_map<size_t, size_t> destWithWeight;
 		destWithWeight.insert(std::pair<size_t, size_t>(dest, cost));
 		this->edgeWeights.insert(std::pair<size_t, std::unordered_map<size_t, size_t>>(source, destWithWeight));
-	}	
+	}
 }
 
 bool GraphData::updateEdge(size_t source, size_t dest, size_t cost) {
@@ -90,7 +93,7 @@ bool GraphData::deleteEdge(size_t source, size_t dest) {
 	if (this->getEdgeWeight(source, dest) == -1) {
 		return false;
 	}
-	
+
 	if (source > dest) {
 		std::swap(source, dest);
 	}
@@ -126,6 +129,6 @@ GraphData* parseGraphData(std::string fname) {
         graph->insertEdge(source, dest, cost);
     }
 	graphFile.close();
-    
+
     return graph;
 }

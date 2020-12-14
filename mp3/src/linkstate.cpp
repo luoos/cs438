@@ -1,3 +1,7 @@
+/*
+ * Author: Carl Guo
+ */
+
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -14,7 +18,7 @@
 
 /**
  * Structure that holds return objects needed for dijkstra path construction
- * predecessors are stored in map as <Key: node, Value: predecessor> 
+ * predecessors are stored in map as <Key: node, Value: predecessor>
  * distances to each node are stored as <Key: node, Value: distance>
  */
 struct linkStateInfo {
@@ -28,7 +32,7 @@ struct linkStateInfo {
  * Performs Dijkstra's algorithm on graph given a source node
  * input graph - Graph object we are performing dijkstra on
  * input source - source node we want to calculate distances from
- * output - Dijkstra info of distances to source and predecessors of each node 
+ * output - Dijkstra info of distances to source and predecessors of each node
  */
 linkStateInfo dijkstra(GraphData* graph, size_t source) {
     std::unordered_map<size_t, int> dists;
@@ -63,12 +67,12 @@ linkStateInfo dijkstra(GraphData* graph, size_t source) {
                 if (smallestDist == -1) {
                     smallestNode = vertex;
                     smallestDist = dists.at(vertex);
-                } 
+                }
                 // update only if the new distance is smaller
                 if (smallestDist > dists.at(vertex)) {
                     smallestNode = vertex;
                     smallestDist = dists.at(vertex);
-                }            
+                }
             }
         }
         // add node to finishedNodes
@@ -76,7 +80,7 @@ linkStateInfo dijkstra(GraphData* graph, size_t source) {
         // update dists for all neighbors of node not in finishedNodes
         for (size_t neighbor : graph->getNeighbors(smallestNode)) {
             // make sure INT_MAX does not wrap around to negative number
-            int newDist = dists.at(smallestNode) == INT_MAX ? 
+            int newDist = dists.at(smallestNode) == INT_MAX ?
                             INT_MAX : dists.at(smallestNode) + graph->getEdgeWeight(smallestNode, neighbor);
             // update if new distance is shorter than current
             // tiebreak by choosing path with smaller node id
@@ -86,8 +90,8 @@ linkStateInfo dijkstra(GraphData* graph, size_t source) {
                     continue;
                 }
                 // tiebreak
-                if (preds.find(neighbor) != preds.end() && 
-                    preds.at(neighbor) <= smallestNode && 
+                if (preds.find(neighbor) != preds.end() &&
+                    preds.at(neighbor) <= smallestNode &&
                     newDist == dists.at(neighbor)) {
                     continue;
                 }
@@ -97,7 +101,7 @@ linkStateInfo dijkstra(GraphData* graph, size_t source) {
                     preds.insert(std::pair<size_t, size_t>(neighbor, smallestNode));
                 } else {
                     preds.at(neighbor) = smallestNode;
-                }                
+                }
             }
         }
     }
@@ -114,7 +118,7 @@ linkStateInfo dijkstra(GraphData* graph, size_t source) {
  * input source - source node of the forwarding table
  * input vertices - all the vertices in the graph
  * input pathInfo - structure of dijkstra predecessors and distances to reconstruct paths
- */ 
+ */
 void outputTable(std::ofstream& outputfile, size_t source, std::set<size_t> vertices, struct linkStateInfo& pathInfo) {
     // output the forwarding table
     for (size_t dest : vertices) {
@@ -126,7 +130,7 @@ void outputTable(std::ofstream& outputfile, size_t source, std::set<size_t> vert
             while (source != pathInfo.preds.at(nexthop)) {
                 nexthop = pathInfo.preds.at(nexthop);
             }
-            outputfile << dest << " " << nexthop << " " << pathInfo.dists.at(dest) << "\n"; 
+            outputfile << dest << " " << nexthop << " " << pathInfo.dists.at(dest) << "\n";
         }
     }
 }
@@ -138,7 +142,7 @@ void outputTable(std::ofstream& outputfile, size_t source, std::set<size_t> vert
  * input dest - dest node of message
  * input message - message portion of messagefile
  * input info - structure of dijkstra predecessors and distances to reconstruct paths
- */ 
+ */
 void outputMessage(std::ofstream& outputfile, size_t source, size_t dest, std::string message, linkStateInfo& info) {
     // if unreachable output infinite cost and unreachable hops
     if (info.preds.find(dest) == info.preds.end()) {
@@ -179,14 +183,14 @@ int main(int argc, char** argv) {
     // loop through every node (from 1 to N)
     const std::set<size_t> vertices = topoGraph->getVertices();
     for (size_t vertex : vertices) {
-        // use dijkstra for each node to get forwarding table 
+        // use dijkstra for each node to get forwarding table
         struct linkStateInfo pathInfo = dijkstra(topoGraph, vertex);
         dijkstraMap.insert(std::pair<size_t, linkStateInfo>(vertex, pathInfo));
         // output the forwarding table
         outputTable(outputfile, vertex, vertices, dijkstraMap.at(vertex));
     }
 
-    // loop through each message line in 
+    // loop through each message line in
     std::ifstream messagefile;
     messagefile.open(argv[2]);
     std::string line;
